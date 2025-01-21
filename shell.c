@@ -30,7 +30,10 @@ static int run_command(char *command, char *argv[])
     return 0;
 }
 
+extern struct pwd_memo pwdm;
+
 #define MAX_ARGV_SIZE 16
+#define PROMPT_BUFFER_SIZE 256
 
 int main(void)
 {
@@ -40,19 +43,14 @@ int main(void)
         exit(1);
     }
 
-    char *prompt = getenv("PROMPT");
-    if (prompt == NULL) {
-        prompt = malloc(strlen(user) + 2);
-        strcpy(prompt, user);
-        strcpy(prompt + strlen(user), "$");
-    }
-
-    char *parsed_command[MAX_ARGV_SIZE];
+    char *parsed_command[MAX_ARGV_SIZE]; //maybe do this dynamically, but good enough for now
 
     char *line_read = NULL;
     size_t line_size = 0;
     while (1) {
-        printf("%s ", prompt);
+        if (set_pwd_if_changed() == -1) 
+            exit(1);
+        printf("%s$ ", pwdm.pwd);
         ssize_t bytes_read = getline(&line_read, &line_size, stdin);
         if (bytes_read == -1) {
             fprintf(stderr, "There was an error reading a line from stdin\n");

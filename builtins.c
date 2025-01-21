@@ -7,11 +7,37 @@
 
 typedef int (*builtin_function)(char*[]);
 
-
 struct builtin {
     builtin_function func;
     const char *name;
 };
+
+struct pwd_memo pwdm = { .changed = 1, .pwd = NULL };
+
+int set_pwd_if_changed(void)
+{
+    if (pwdm.changed == 0)
+        return 0;
+
+    const int path_max = pathconf(".", _PC_PATH_MAX);
+    char buffer[path_max];
+    char *current_dir = getcwd(buffer, path_max);
+    if (current_dir == NULL) {
+        fprintf(stderr, "There was an error getting the current path\n");
+        return -1;
+    }
+    
+    if (pwdm.pwd != NULL) 
+        free(pwdm.pwd);
+
+    char *p = strdup(buffer);
+    if (p == NULL) 
+        return -2;
+    pwdm.pwd = p;
+    pwdm.changed = 0;
+    puts("changed pwd memo");
+    return 0;
+}
 
 static int exit_builtin(char *argv[])
 {
@@ -30,8 +56,10 @@ static int exit_builtin(char *argv[])
 static int cd(char *argv[])
 {
     if (argv[1] == NULL) {
-        fprintf(stderr, "Usage: cd `directory`\n");
-        return -2;
+        char *user_home = getenv("HOME");
+        if (user_home == NULL) 
+            return -2;
+        argv[1] = user_home;
     }
     // -2 means that recovarable error happened 
     // -1 means that unrecovarable error happened 
@@ -50,22 +78,23 @@ static int cd(char *argv[])
         }
         return -1;
     } 
+    pwdm.changed = 1;
     return 0;
 }
 
 static int pwd(char *argv[])
 {
     (void)pwd;
-    const int path_max = pathconf(".", _PC_PATH_MAX);
-    char buffer[path_max];
-    char *current_dir = getcwd(buffer, path_max);
 
-    if (current_dir == NULL) {
-        fprintf(stderr, "There was an error getting the current path\n");
-        return -2;
+    if (pwdm.changed == 0) {
+        puts(pwdm.pwd);
+        return 0;
     }
 
-    puts(current_dir);
+    if (set_pwd_if_changed() == -1) 
+        return -1;
+
+    puts(pwdm.pwd);
 
     return 0;
 }
