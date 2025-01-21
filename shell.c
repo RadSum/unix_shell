@@ -4,6 +4,8 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
+#include "builtins.h"
+
 static int run_command(char *command, char *argv[])
 {
     pid_t process = fork();
@@ -70,6 +72,12 @@ int main(void)
             parsed_command[c++] = str; 
         }
         parsed_command[c] = NULL;
+
+        int status = run_builtin(parsed_command[0], parsed_command);
+        if (status == -1) 
+            exit(1); 
+        if (status != -3)
+            continue;
 
         if (run_command(parsed_command[0], parsed_command) == -1) {
             exit(1);
