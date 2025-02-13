@@ -14,6 +14,8 @@ struct builtin {
 
 struct pwd_memo pwdm = { .changed = 1, .pwd = NULL };
 
+static struct builtin *get_builtin(char *cmd);
+
 int set_pwd_if_changed(void)
 {
     if (pwdm.changed == 0)
@@ -99,11 +101,23 @@ static int pwd(char *argv[])
     return 0;
 }
 
+static int type(char *argv[])
+{
+    if (argv[1] == NULL) {
+        fprintf(stderr, "Usage: type `command`\n"); 
+        return 0; // 0 for now
+    }
+
+    printf("%s is %s a shell builtin\n", argv[1], get_builtin(argv[1]) == NULL ? "not" : "\x08");
+    return 0;
+}
+
 static struct builtin builtins[] = 
 { 
     { .func = &exit_builtin, .name = "exit" }, 
     { .func = &cd, .name = "cd" },  
     { .func = &pwd, .name = "pwd" },
+    { .func = &type, .name = "type" },
 };
 
 static struct builtin *get_builtin(char *command)

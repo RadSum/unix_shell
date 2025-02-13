@@ -1,5 +1,5 @@
 CC := gcc
-CC_FLAGS := -Wall -Wextra
+CC_FLAGS := -Wall -Wextra -pedantic
 
 shell: shell.c builtins.o
 	$(CC) $(CC_FLAGS) -o shell shell.c builtins.o
