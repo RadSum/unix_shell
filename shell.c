@@ -41,8 +41,13 @@ static void wait_for_processes(struct parsed_command *cmds, int cmd_count)
     int rem = cmd_count;
     while (rem > 0) {
         for (int i = 0; i < cmd_count; ++i) {
-            if (cmds[i].pid == -1)
+            if (cmds[i].pid < 0) {
+                if (cmds[i].pid == -2) {
+                    rem--;
+                    cmds[i].pid = -1;
+                }
                 continue;
+            }
             int status;
             if (waitpid(cmds[i].pid, &status, WNOHANG) == 0) {
 
@@ -80,9 +85,6 @@ int main(void)
         // don't include the `\n` character
         line_read[bytes_read - 1] = '\0';
 
-        if (strcmp(line_read, "exit") == 0) 
-            break;
-
         int cmd_count = 0;
         char **parsed_pipes = parse_line_with_pipes(line_read, &cmd_count);
         if (parsed_pipes == NULL) {
@@ -92,8 +94,13 @@ int main(void)
         struct parsed_command *cmds = parse_commands(parsed_pipes, cmd_count);
 
         for (int i = 0; i < cmd_count; ++i) {
-            if (run_command(cmds + i) == -1) 
-                exit(1);
+            if (is_builtin(cmds[i].argv[0])) {
+                if (run_builtin(cmds + i) == -1)
+                    exit(1);
+            } else {
+                if (run_command(cmds + i) == -1)
+                    exit(1);
+            }
         }
         wait_for_processes(cmds, cmd_count);
         

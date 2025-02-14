@@ -1,11 +1,14 @@
-#include "builtins.h"
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
 #include <stdlib.h>
 
-typedef int (*builtin_function)(char*[]);
+#include "builtins.h"
+#include "parsing.h"
+
+typedef int (*builtin_function)(struct parsed_command*);
 
 struct builtin {
     builtin_function func;
@@ -28,9 +31,6 @@ int set_pwd_if_changed(void)
         fprintf(stderr, "There was an error getting the current path\n");
         return -1;
     }
-    
-    if (pwdm.pwd != NULL) 
-        free(pwdm.pwd);
 
     char *p = strdup(buffer);
     if (p == NULL) 
@@ -39,16 +39,15 @@ int set_pwd_if_changed(void)
         free(pwdm.pwd);
     pwdm.pwd = p;
     pwdm.changed = 0;
-    puts("changed pwd memo");
     return 0;
 }
 
-static int exit_builtin(char *argv[])
+static int exit_builtin(struct parsed_command *cmd)
 {
-    if (argv[1] == NULL) 
+    if (cmd->argv[1] == NULL) 
         exit(0);
 
-    int exit_number = atoi(argv[1]);
+    int exit_number = atoi(cmd->argv[1]);
     if (exit_number == 0) {
         fprintf(stderr, "Usage: exit `exit_number`\n");
         return -2;
@@ -57,27 +56,24 @@ static int exit_builtin(char *argv[])
     exit(exit_number);
 }
 
-static int cd(char *argv[])
+static int cd(struct parsed_command *cmd)
 {
-    if (argv[1] == NULL) {
+    if (cmd->argv[1] == NULL) {
         char *user_home = getenv("HOME");
         if (user_home == NULL) 
             return -2;
-        argv[1] = user_home;
+        cmd->argv[1] = user_home;
     }
-    // -2 means that recovarable error happened 
-    // -1 means that unrecovarable error happened 
-    // 0 means ok
-    if (chdir(argv[1]) == -1) {
+    if (chdir(cmd->argv[1]) == -1) {
         switch (errno) {
         case ENOENT:
-            fprintf(stderr, "%s does not exist\n", argv[1]);
+            fprintf(stderr, "%s does not exist\n", cmd->argv[1]);
             return -2;
         case EACCES:
-            fprintf(stderr, "Permission denied on %s\n", argv[1]);
+            fprintf(stderr, "Permission denied on %s\n", cmd->argv[1]);
             return -2;
         case ENOTDIR:
-            fprintf(stderr, "%s is not a directory\n", argv[1]);
+            fprintf(stderr, "%s is not a directory\n", cmd->argv[1]);
             return -2;
         }
         return -1;
@@ -86,31 +82,32 @@ static int cd(char *argv[])
     return 0;
 }
 
-static int pwd(char *argv[])
+static int pwd(struct parsed_command *cmd)
 {
-    (void)pwd;
+    (void)cmd;
 
+    int real_out = cmd->stdout_fd == -1 ? STDOUT_FILENO : cmd->stdout_fd;
     if (pwdm.changed == 0) {
-        puts(pwdm.pwd);
+        dprintf(real_out, "%s\n", pwdm.pwd);
         return 0;
     }
 
     if (set_pwd_if_changed() == -1) 
         return -1;
 
-    puts(pwdm.pwd);
+    dprintf(real_out, "%s\n", pwdm.pwd);
 
     return 0;
 }
 
-static int type(char *argv[])
+static int type(struct parsed_command *cmd)
 {
-    if (argv[1] == NULL) {
+    if (cmd->argv[1] == NULL) {
         fprintf(stderr, "Usage: type `command`\n"); 
         return 0; // 0 for now
     }
-
-    printf("%s is %s a shell builtin\n", argv[1], get_builtin(argv[1]) == NULL ? "not" : "\x08");
+    int real_out = cmd->stdout_fd == -1 ? STDOUT_FILENO : cmd->stdout_fd;
+    dprintf(real_out, "%s is %s a shell builtin\n", cmd->argv[1], get_builtin(cmd->argv[1]) == NULL ? "not" : "\x08");
     return 0;
 }
 
@@ -132,11 +129,18 @@ static struct builtin *get_builtin(char *command)
     return NULL;
 }
 
-int run_builtin(char *command, char *argv[])
+bool is_builtin(char *command)
+{
+    return get_builtin(command) != NULL;
+}
+
+int run_builtin(struct parsed_command *cmd)
 { 
-    struct builtin *builtin = get_builtin(command);
-    if (builtin == NULL)
-        return -3;
-    return builtin->func(argv);
+    struct builtin *builtin = get_builtin(cmd->argv[0]);
+    cmd->pid = -2;
+    int ret = builtin->func(cmd);
+    if ((cmd->stdout_fd != -1 && close(cmd->stdout_fd) == -1) || (cmd->stdin_fd != -1 && close(cmd->stdin_fd) == -1))
+        fprintf(stderr, "There was an error closing a pipe");
+    return ret;
 }
 
