@@ -35,6 +35,8 @@ int set_pwd_if_changed(void)
     char *p = strdup(buffer);
     if (p == NULL) 
         return -2;
+    if (pwdm.pwd != NULL) 
+        free(pwdm.pwd);
     pwdm.pwd = p;
     pwdm.changed = 0;
     puts("changed pwd memo");

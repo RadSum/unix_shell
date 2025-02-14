@@ -5,34 +5,57 @@
 #include <sys/wait.h>
 
 #include "builtins.h"
+#include "parsing.h"
 
-static int run_command(char *command, char *argv[])
+static int run_command(struct parsed_command *cmd)
 {
     pid_t process = fork();
     if (process == -1) 
         return -1;
 
     if (process == 0) {
-        execvp(command, argv);
+        if (cmd->stdin_fd != -1) {
+            // check for errors 
+            dup2(cmd->stdin_fd, STDIN_FILENO);
+        }
+        if (cmd->stdout_fd != -1) {
+            // check for errors 
+            dup2(cmd->stdout_fd, STDOUT_FILENO);
+        }
+
+        execvp(cmd->argv[0], cmd->argv);
 
         //error happened
         exit(127);
     }
-
-    int status;
-    if (waitpid(process, &status, 0) == -1) 
-        return -1;
-
-    if (WEXITSTATUS(status) == 127) {
-        fprintf(stderr, "There was an error running the command `%s`\n", command);
-    }
-
+    cmd->pid = process;
+    if (cmd->stdout_fd != -1)
+        close(cmd->stdout_fd);
+    if (cmd->stdin_fd != -1)
+        close(cmd->stdin_fd);
     return 0;
+}
+
+static void wait_for_processes(struct parsed_command *cmds, int cmd_count)
+{
+    int rem = cmd_count;
+    while (rem > 0) {
+        for (int i = 0; i < cmd_count; ++i) {
+            if (cmds[i].pid == -1)
+                continue;
+            int status;
+            if (waitpid(cmds[i].pid, &status, WNOHANG) == 0) {
+
+            } else {
+                cmds[i].pid = -1;
+                rem--;
+            }
+        }
+    }
 }
 
 extern struct pwd_memo pwdm;
 
-#define MAX_ARGV_SIZE 16
 #define PROMPT_BUFFER_SIZE 256
 
 int main(void)
@@ -42,8 +65,6 @@ int main(void)
         fprintf(stderr, "There was an error getting the USER variable");
         exit(1);
     }
-
-    char *parsed_command[MAX_ARGV_SIZE]; //maybe do this dynamically, but good enough for now
 
     char *line_read = NULL;
     size_t line_size = 0;
@@ -59,28 +80,28 @@ int main(void)
         // don't include the `\n` character
         line_read[bytes_read - 1] = '\0';
 
-        if (strcmp(line_read, "exit") == 0) {
-            exit(0);
-        }
+        if (strcmp(line_read, "exit") == 0) 
+            break;
 
-        char *str = strtok(line_read, " ");
-        parsed_command[0] = str == NULL ? line_read : str;
-        int c = 1;
-        while ((str = strtok(NULL, " ")) != NULL) {
-            parsed_command[c++] = str; 
-        }
-        parsed_command[c] = NULL;
-
-        int status = run_builtin(parsed_command[0], parsed_command);
-        if (status == -1) 
-            exit(1); 
-        if (status != -3)
-            continue;
-
-        if (run_command(parsed_command[0], parsed_command) == -1) {
+        int cmd_count = 0;
+        char **parsed_pipes = parse_line_with_pipes(line_read, &cmd_count);
+        if (parsed_pipes == NULL) {
+            fprintf(stderr, "There was an error parsing the line\n");
             exit(1);
         }
+        struct parsed_command *cmds = parse_commands(parsed_pipes, cmd_count);
+
+        for (int i = 0; i < cmd_count; ++i) {
+            if (run_command(cmds + i) == -1) 
+                exit(1);
+        }
+        wait_for_processes(cmds, cmd_count);
+        
+        free_parsed_commands(cmds, cmd_count);
+        free(parsed_pipes);
     }
+    free(line_read);
+    free(pwdm.pwd);
 
     return 0;
 }
