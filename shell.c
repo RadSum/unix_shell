@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <errno.h>
 
 #include "builtins.h"
 #include "parsing.h"
@@ -24,9 +25,8 @@ static int run_command(struct parsed_command *cmd)
         }
 
         execvp(cmd->argv[0], cmd->argv);
-
-        //error happened
-        exit(127);
+        // execvp failed, so exit with errno
+        exit(errno);
     }
     cmd->pid = process;
     if (cmd->stdout_fd != -1)
@@ -50,8 +50,12 @@ static void wait_for_processes(struct parsed_command *cmds, int cmd_count)
             }
             int status;
             if (waitpid(cmds[i].pid, &status, WNOHANG) == 0) {
-
             } else {
+                int exit_status = WEXITSTATUS(status);
+                if (exit_status & EACCES)
+                    fprintf(stderr, "Permission to execute %s is not permitted\n", cmds[i].command);
+                if (exit_status & ENOENT)
+                    fprintf(stderr, "%s: command not found\n", cmds[i].command);
                 cmds[i].pid = -1;
                 rem--;
             }
